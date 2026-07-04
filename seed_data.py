@@ -621,9 +621,19 @@ DEMO_ENVIRONMENTS: list[dict] = [
 # - ICSA-24-065-02: Rockwell ControlLogix, L1, NETWORK, CVSS 9.0 -> 80.0 CRITICAL
 # - ICSA-24-074-01: GE iFIX SCADA, L2, NETWORK, CVSS 8.1 -> 70.5 HIGH
 # - ICSA-24-012-01: Siemens SCALANCE, L35, NETWORK, CVSS 9.6 -> 70.0 HIGH (no internet bonus: 35 not in [3])
-# - ICSA-23-243-01: Siemens SIPROTEC, L3, PHYSICAL, CVSS 6.5 -> 54.5 MEDIUM
-# - ICSA-23-299-01: Rockwell FactoryTalk, L3, LOCAL, CVSS 6.0 -> 50.0 MEDIUM
-# Overall: CRITICAL (2 critical findings)
+# - ICSA-23-243-01: Siemens SIPROTEC, L3, PHYSICAL, CVSS 6.5 -> 69.5 HIGH (internet bonus applies: 3 IS in [3])
+# - ICSA-23-299-01: Rockwell FactoryTalk, L3, LOCAL, CVSS 6.0 -> 65.0 HIGH (internet bonus applies: 3 IS in [3])
+# Overall: CRITICAL (2 critical, 4 high, 0 medium findings)
+#
+# NOTE (fixed 2026-07-03): this report previously listed the two L3 findings
+# at 54.5/50.0 MEDIUM, omitting the +15 internet-exposure bonus that
+# compute_exposure_score() applies whenever advisory.purdue_level is in
+# env.internet_exposed_levels -- Riverside's internet_exposed_levels=[3]
+# does include Level 3 (the state compliance reporting portal), so the
+# bonus was always supposed to apply here; it was just never reflected in
+# this hand-written narrative. Caught by risk_correlator (P72) actually
+# running this file's own scoring_engine.assess_environment() against this
+# same environment and comparing the live output to this text.
 # ---------------------------------------------------------------------------
 
 DEMO_REPORT_TEXT = """\
@@ -670,7 +680,7 @@ Sector: Water and Wastewater
 Purdue Levels Present: 1 (PLCs), 2 (SCADA/HMI), 3 (MES/Historian)
 Internet Exposure: Level 3 (state compliance reporting portal)
 Installed Vendors: Siemens, Rockwell Automation, GE Digital
-Advisories Checked: 20 | Applicable: 6 | Critical: 2 | High: 2 | Medium: 2
+Advisories Checked: 20 | Applicable: 6 | Critical: 2 | High: 4 | Medium: 0
 
 ------------------------------------------------------------------------
 III. CRITICAL FINDINGS (IMMEDIATE ACTION REQUIRED)
@@ -716,19 +726,29 @@ IV. HIGH-PRIORITY FINDINGS
   risk. Verify SCALANCE device inventory before dismissing.
   Action: If any SCALANCE devices present, patch immediately to v7.2.0.
 
+[HIGH] ICSA-23-243-01 -- Siemens SIPROTEC 5 Protection Relay
+  Level: 3 | CVSS: 6.5 | Score: 69.5/100 | Vector: Physical
+  Improper authentication in protection relay web interface. Requires
+  physical access to exploit directly, but Level 3 is internet-facing
+  at this plant (compliance reporting portal) -- an attacker who
+  reaches Level 3 remotely is then positioned to attempt this
+  physical/local-vector advisory from the inside. Not mitigated by
+  physical security controls alone once Level 3 itself is reachable
+  from the internet.
+
+[HIGH] ICSA-23-299-01 -- Rockwell FactoryTalk View SE HMI
+  Level: 3 | CVSS: 6.0 | Score: 65.0/100 | Vector: Local
+  Privilege escalation in HMI software. Requires local network access
+  to exploit directly, but same Level 3 internet exposure applies as
+  above. Patch available; apply during next Level 3 maintenance window.
+
 ------------------------------------------------------------------------
 V. MEDIUM-PRIORITY FINDINGS
 ------------------------------------------------------------------------
 
-[MEDIUM] ICSA-23-243-01 -- Siemens SIPROTEC 5 Protection Relay
-  Level: 3 | CVSS: 6.5 | Score: 54.5/100 | Vector: Physical
-  Improper authentication in protection relay web interface. Requires
-  physical access; mitigated by physical security controls.
-
-[MEDIUM] ICSA-23-299-01 -- Rockwell FactoryTalk View SE HMI
-  Level: 3 | CVSS: 6.0 | Score: 50.0/100 | Vector: Local
-  Privilege escalation in HMI software. Mitigated by operator
-  workstation access controls. Patch available; low operational impact.
+None. The two advisories that would otherwise rate MEDIUM on CVSS alone
+(ICSA-23-243-01, ICSA-23-299-01) are elevated to HIGH because Level 3 is
+internet-facing at this plant -- see Section IV.
 
 ------------------------------------------------------------------------
 VI. PURDUE MODEL COVERAGE ANALYSIS
@@ -741,9 +761,15 @@ window without process shutdown) prevent immediate remediation. Network
 segmentation and CIP Security enforcement are the compensating controls.
 
 Level 2 SCADA vulnerabilities are patchable without downtime.
-Level 3 vulnerabilities have physical access or local network requirements.
-No Level 3.5 DMZ components are deployed, limiting lateral movement
-paths from IT to OT networks.
+Level 3 vulnerabilities (SIPROTEC, FactoryTalk) require physical or
+local access to exploit directly, but their exposure scores are
+elevated because Level 3 itself is internet-facing (the state
+compliance reporting portal) -- an attacker who reaches Level 3
+remotely via that portal is then positioned to attempt these
+physical/local-vector advisories from the inside, converting an
+initial remote foothold into local access. No Level 3.5 DMZ components
+are deployed, limiting lateral movement paths from IT to OT networks
+below Level 3.
 
 ------------------------------------------------------------------------
 VII. RECOMMENDED MITIGATIONS (PRIORITY ORDER)
@@ -765,7 +791,12 @@ VII. RECOMMENDED MITIGATIONS (PRIORITY ORDER)
 5. [60 DAYS] Audit Siemens device inventory for SCALANCE presence.
    If found, apply SCALANCE firmware patch v7.2.0 immediately.
 
-6. [ONGOING] Deploy industrial protocol-aware IDS (Dragos or Claroty)
+6. [60 DAYS] Remove or restrict the Level 3 compliance reporting
+   portal's internet exposure (VPN-only access, or a dedicated
+   read-only export path) to close the remote-to-local pivot path
+   into ICSA-23-243-01 (SIPROTEC) and ICSA-23-299-01 (FactoryTalk).
+
+7. [ONGOING] Deploy industrial protocol-aware IDS (Dragos or Claroty)
    to detect anomalous EtherNet/IP, Modbus, and HART traffic patterns.
 
 ------------------------------------------------------------------------
@@ -776,8 +807,8 @@ APPENDIX: APPLICABLE ICS-CERT ADVISORY REFERENCE IDs
   ICSA-24-065-02  Rockwell Automation ControlLogix 5580       [CRITICAL]
   ICSA-24-074-01  GE Digital iFIX SCADA HMI                  [HIGH]
   ICSA-24-012-01  Siemens SCALANCE S615 OT Firewall           [HIGH]
-  ICSA-23-243-01  Siemens SIPROTEC 5 Protection Relay         [MEDIUM]
-  ICSA-23-299-01  Rockwell FactoryTalk View SE                [MEDIUM]
+  ICSA-23-243-01  Siemens SIPROTEC 5 Protection Relay         [HIGH]
+  ICSA-23-299-01  Rockwell FactoryTalk View SE                [HIGH]
 
 Source: CISA ICS-CERT (cisa.gov/ics-advisories)
 Assessment Tool: P67 ICS/SCADA Vulnerability Exposure Assessor
