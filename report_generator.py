@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 
+from claude_client import call_claude
 from config import CLAUDE_MODEL, VOLT_TYPHOON_NOTE
 from models import AssessmentReport
 from seed_data import DEMO_REPORT_TEXT, DEMO_ENV_NAME
@@ -161,8 +162,6 @@ def _assemble_brief(report: AssessmentReport) -> str:
 
 def _generate_with_claude(report: AssessmentReport) -> tuple[str, list[str]]:
     """Call Claude Haiku to synthesize a narrative OT security brief."""
-    import anthropic
-
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise ReportGeneratorError("ANTHROPIC_API_KEY not set")
@@ -209,13 +208,12 @@ Rules:
 """
 
     try:
-        client = anthropic.Anthropic(api_key=api_key)
-        msg = client.messages.create(
-            model=CLAUDE_MODEL,
+        brief_text = call_claude(
+            [{"role": "user", "content": prompt}],
             max_tokens=2048,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        brief_text = msg.content[0].text.strip()
+            model=CLAUDE_MODEL,
+            api_key=api_key,
+        ).strip()
     except Exception as e:
         raise ReportGeneratorError(f"Claude brief generation failed: {e}") from e
 

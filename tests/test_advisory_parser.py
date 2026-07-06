@@ -175,3 +175,41 @@ class TestParseAdvisories:
         advisories = parse_advisories(DEMO_ADVISORIES, demo_mode=True)
         scalance = next(a for a in advisories if "SCALANCE" in a.product)
         assert scalance.purdue_level == 35
+
+
+class TestExtractWithClaude:
+    """
+    _extract_with_claude() had zero test coverage before this file was
+    touched to swap in the shared claude_client.call_claude() wrapper --
+    added here alongside that change.
+    """
+
+    def test_no_api_key_raises(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        from advisory_parser import _extract_with_claude
+        with pytest.raises(AdvisoryParserError, match="ANTHROPIC_API_KEY"):
+            _extract_with_claude(_raw(_needs_extraction=True))
+
+    def test_success_merges_extracted_fields(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        extracted_literal = (
+            "{'vendor': 'Rockwell', 'product': 'ControlLogix', 'purdue_level': 2, "
+            "'attack_vector': 'ADJACENT', 'cvss_score': 8.1, 'patch_available': True, "
+            "'patching_feasible': True, 'affected_sectors': ['MANUFACTURING'], "
+            "'mitigations': ['Segment network']}"
+        )
+        import advisory_parser
+        monkeypatch.setattr(advisory_parser, "call_claude", lambda *a, **kw: extracted_literal)
+        result = advisory_parser._extract_with_claude(_raw(_needs_extraction=True))
+        assert result["vendor"] == "Rockwell"
+        assert result["purdue_level"] == 2
+        assert "_needs_extraction" not in result
+
+    def test_claude_failure_raises_advisory_parser_error(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        import advisory_parser
+        def _raise(*a, **kw):
+            raise RuntimeError("simulated API failure")
+        monkeypatch.setattr(advisory_parser, "call_claude", _raise)
+        with pytest.raises(AdvisoryParserError, match="Claude extraction failed"):
+            advisory_parser._extract_with_claude(_raw(_needs_extraction=True))

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 
+from claude_client import call_claude
 from config import (
     CLAUDE_MODEL, VALID_PURDUE_LEVELS, VALID_ATTACK_VECTORS, VALID_SECTORS,
 )
@@ -83,13 +84,9 @@ def _dict_to_advisory(raw: dict) -> ICSAdvisory:
 
 def _extract_with_claude(raw: dict) -> dict:
     """Use Claude to extract structured fields from raw advisory text."""
-    import anthropic
-
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise AdvisoryParserError("ANTHROPIC_API_KEY not set for live extraction")
-
-    client = anthropic.Anthropic(api_key=api_key)
 
     prompt = (
         f"Advisory ID: {raw.get('advisory_id')}\n"
@@ -112,12 +109,12 @@ def _extract_with_claude(raw: dict) -> dict:
     )
 
     try:
-        msg = client.messages.create(
-            model=CLAUDE_MODEL,
+        text = call_claude(
+            [{"role": "user", "content": prompt}],
             max_tokens=512,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = msg.content[0].text.strip()
+            model=CLAUDE_MODEL,
+            api_key=api_key,
+        ).strip()
         extracted = eval(text)  # nosec — controlled output from Claude
     except Exception as e:
         raise AdvisoryParserError(f"Claude extraction failed for {raw.get('advisory_id')}: {e}") from e
